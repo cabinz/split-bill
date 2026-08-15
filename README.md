@@ -100,26 +100,39 @@ splitbill \
 
 ### 3. View Results
 
-The output shows the optimized repayment scheme:
+The output shows what each member spent, followed by the optimized repayment
+scheme:
 ```
 Members: Vivian, Alan, Cathy, Cabin
 ====================
-Creditors:
-        Alan: HKD1067.90
-Debtors:
-        Vivian: HKD411.34
-        Cathy: HKD652.40
-        Cabin: HKD4.16
+Spending of each member:
+╔════════╦═══════════════════╦════════════╦═══════════════════════╦═══════════╗
+║ Member ║ Consumption (HKD) ║ Paid (HKD) ║ Paid for Others (HKD) ║ Net (HKD) ║
+╠════════╬═══════════════════╬════════════╬═══════════════════════╬═══════════╣
+║ Alan   ║          1,551.79 ║   2,619.68 ║              2,137.84 ║ +1,067.90 ║
+║ Cabin  ║          1,704.25 ║   1,700.09 ║              1,326.96 ║     -4.16 ║
+║ Vivian ║          1,441.55 ║   1,030.21 ║                854.90 ║   -411.34 ║
+║ Cathy  ║          1,545.25 ║     892.85 ║                674.54 ║   -652.40 ║
+╚════════╩═══════════════════╩════════════╩═══════════════════════╩═══════════╝
+  Consumption:     own share of the records the member takes part in
+  Paid:            amount actually paid out as a creditor
+  Paid for Others: the part of Paid covering other members' shares
+  Net:             Paid - Consumption; positive means being owed money
 ====================
 Simplest bill splitting scheme: (with 3 transactions)
 ╔════╦══════════╦═════╦════════╦══════════════╗
 ║ #  ║ Creditor ║     ║ Debtor ║ Amount (HKD) ║
 ╠════╬══════════╬═════╬════════╬══════════════╣
-║ 1  ║   Alan   ║ <-- ║ Vivian ║        411.34║
-║ 2  ║   Alan   ║ <-- ║ Cathy  ║        652.40║
-║ 3  ║   Alan   ║ <-- ║ Cabin  ║          4.16║
+║ 1  ║   Alan   ║ <-- ║ Vivian ║       411.34 ║
+║ 2  ║   Alan   ║ <-- ║ Cathy  ║       652.40 ║
+║ 3  ║   Alan   ║ <-- ║ Cabin  ║         4.16 ║
 ╚════╩══════════╩═════╩════════╩══════════════╝
 ```
+
+A member's `Consumption` is their real cost: the share they take on every
+record they appear on, whoever fronted the money. `Paid for Others` is how much
+of their own payout went to covering the rest of the group, which is the part
+that gets settled. `Net` is the difference the repayment scheme resolves.
 
 ## Advanced Usage
 

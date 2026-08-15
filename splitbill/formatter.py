@@ -50,6 +50,81 @@ def pad_string(text, target_width, align='left'):
         return ' ' * left_pad + text + ' ' * right_pad
 
 
+def render_box_table(headers, rows, aligns=None, min_content_widths=None,
+                     fixed_widths=None):
+    """Render rows into a box-drawing table.
+
+    Args:
+        headers: Header label of each column.
+        rows: Sequence of rows, each a sequence of already-stringified cells.
+        aligns: Data-cell alignment per column ('left'/'right'/'center').
+            Headers are always centered. Defaults to all centered.
+        min_content_widths: Minimum width of each column's content, applied
+            before the gutters are added. Defaults to 0 for every column.
+        fixed_widths: Final width of each column, gutters included, bypassing
+            measurement. Use None for a column that should be measured.
+
+    Returns:
+        Formatted table string.
+    """
+    n_cols = len(headers)
+    aligns = aligns or ['center'] * n_cols
+    min_content_widths = min_content_widths or [0] * n_cols
+    fixed_widths = fixed_widths or [None] * n_cols
+
+    # Each column fits its widest cell (or its header), plus a one-space gutter
+    # on either side. Cells are aligned within the gutters, so that neither a
+    # left- nor a right-aligned cell ends up touching a border.
+    GUTTER = 1
+    widths = []
+    for i in range(n_cols):
+        if fixed_widths[i] is not None:
+            widths.append(fixed_widths[i])
+            continue
+        content_width = max(
+            [get_display_width(headers[i]), min_content_widths[i]]
+            + [get_display_width(row[i]) for row in rows]
+        )
+        widths.append(content_width + 2 * GUTTER)
+
+    # Box drawing characters
+    top_left = "╔"
+    top_right = "╗"
+    bottom_left = "╚"
+    bottom_right = "╝"
+    horizontal = "═"
+    vertical = "║"
+    cross = "╬"
+    t_down = "╦"
+    t_up = "╩"
+    t_right = "╠"
+    t_left = "╣"
+
+    def _border(left, joint, right):
+        return left + joint.join(horizontal * w for w in widths) + right
+
+    def _cell(text, width, align):
+        gutter = ' ' * GUTTER
+        return gutter + pad_string(text, width - 2 * GUTTER, align) + gutter
+
+    def _row(cells, cell_aligns):
+        return (vertical
+                + vertical.join(_cell(cell, width, align)
+                                for cell, width, align
+                                in zip(cells, widths, cell_aligns))
+                + vertical)
+
+    lines = [
+        _border(top_left, t_down, top_right),
+        _row(headers, ['center'] * n_cols),
+        _border(t_right, cross, t_left),
+    ]
+    lines.extend(_row(row, aligns) for row in rows)
+    lines.append(_border(bottom_left, t_up, bottom_right))
+
+    return '\n'.join(lines)
+
+
 def format_transaction_table(df, currency=None):
     """
     Format transaction DataFrame into a beautiful table string.
@@ -77,85 +152,51 @@ def format_transaction_table(df, currency=None):
         debtor = str(row[col_debtor])
         # Format amount with thousand separators
         amount = f"{row[col_amount]:,.2f}"
-        rows.append((transaction_id, creditor, debtor, amount))
-    
-    # Calculate column widths
-    # Minimum widths for headers
-    width_id = max(2, max(len(str(r[0])) for r in rows))  # "#" header is 1 char
-    width_creditor = max(get_display_width("Creditor"), 
-                        max(get_display_width(r[1]) for r in rows))
-    width_debtor = max(get_display_width("Debtor"), 
-                      max(get_display_width(r[2]) for r in rows))
-    width_amount = max(get_display_width(col_amount), 
-                      max(get_display_width(r[3]) for r in rows))
-    
-    # Add some padding
-    width_id = max(3, width_id + 2)
-    width_creditor += 2
-    width_debtor += 2
-    width_amount += 2
-    width_arrow = 5  # Fixed width for arrow column
-    
-    # Box drawing characters
-    top_left = "╔"
-    top_right = "╗"
-    bottom_left = "╚"
-    bottom_right = "╝"
-    horizontal = "═"
-    vertical = "║"
-    cross = "╬"
-    t_down = "╦"
-    t_up = "╩"
-    t_right = "╠"
-    t_left = "╣"
-    
-    # Build the table
-    lines = []
-    
-    # Top border
-    top_border = (top_left + 
-                 horizontal * width_id + t_down +
-                 horizontal * width_creditor + t_down +
-                 horizontal * width_arrow + t_down +
-                 horizontal * width_debtor + t_down +
-                 horizontal * width_amount + top_right)
-    lines.append(top_border)
-    
-    # Header row
-    header = (vertical + 
-             pad_string("#", width_id, 'center') + vertical +
-             pad_string("Creditor", width_creditor, 'center') + vertical +
-             pad_string("", width_arrow, 'center') + vertical +
-             pad_string("Debtor", width_debtor, 'center') + vertical +
-             pad_string(col_amount, width_amount, 'center') + vertical)
-    lines.append(header)
-    
-    # Header separator
-    header_sep = (t_right + 
-                 horizontal * width_id + cross +
-                 horizontal * width_creditor + cross +
-                 horizontal * width_arrow + cross +
-                 horizontal * width_debtor + cross +
-                 horizontal * width_amount + t_left)
-    lines.append(header_sep)
-    
-    # Data rows
-    for transaction_id, creditor, debtor, amount in rows:
-        data_row = (vertical + 
-                   pad_string(str(transaction_id), width_id, 'center') + vertical +
-                   pad_string(creditor, width_creditor, 'center') + vertical +
-                   pad_string("<--", width_arrow, 'center') + vertical +
-                   pad_string(debtor, width_debtor, 'center') + vertical +
-                   pad_string(amount, width_amount, 'right') + vertical)
-        lines.append(data_row)
-    
-    # Bottom border
-    bottom_border = (bottom_left + 
-                    horizontal * width_id + t_up +
-                    horizontal * width_creditor + t_up +
-                    horizontal * width_arrow + t_up +
-                    horizontal * width_debtor + t_up +
-                    horizontal * width_amount + bottom_right)
-    lines.append(bottom_border)
-    
-    return '\n'.join(lines)
+        rows.append((str(transaction_id), creditor, "<--", debtor, amount))
+
+    return render_box_table(
+        headers=["#", "Creditor", "", "Debtor", col_amount],
+        rows=rows,
+        aligns=['center', 'center', 'center', 'center', 'right'],
+        min_content_widths=[2, 0, 0, 0, 0],  # "#" header is 1 char
+        fixed_widths=[None, None, 5, None, None],  # fixed arrow column
+    )
+
+
+def format_member_stats_table(stats, currency=None):
+    """Format per-member spending statistics into a table string.
+
+    Args:
+        stats: Mapping of member name to `loader.MemberStats`. Rendered in the
+            order given.
+        currency: Optional currency code to display in the amount headers.
+
+    Returns:
+        Formatted table string.
+    """
+    if not stats:
+        return "No members found."
+
+    suffix = f" ({currency})" if currency else ""
+    rows = [
+        (
+            name,
+            f"{s.consumption:,.2f}",
+            f"{s.paid:,.2f}",
+            f"{s.paid_for_others:,.2f}",
+            f"{s.net:+,.2f}",
+        )
+        for name, s in stats.items()
+    ]
+
+    return render_box_table(
+        headers=[
+            "Member",
+            "Consumption" + suffix,
+            "Paid" + suffix,
+            "Paid for Others" + suffix,
+            "Net" + suffix,
+        ],
+        rows=rows,
+        aligns=['left', 'right', 'right', 'right', 'right'],
+    )

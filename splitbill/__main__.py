@@ -3,7 +3,7 @@
 from .config import *
 from .loader import Loader, DataFormat, clean_amount_column
 from .exr import ExchangeRates
-from .formatter import format_transaction_table
+from .formatter import format_transaction_table, format_member_stats_table
 from .validator import DataValidator, ValidationResult
 from . import graph
 
@@ -156,33 +156,14 @@ def main():
     print(SPLIT_LN)
 
     g = loader.get_graph()
-    creditors, debtors = [], []
-    for name, net_out in g.net_out_flow.items():
-        if net_out > 0:
-            creditors.append((name, net_out))
-        else:
-            debtors.append((name, -net_out))
 
-    print("Creditors:")
-    for name, amount in creditors:
-        print(
-            "\t{}: {}{:.2f}".format(
-                name,
-                args.standard_currency if args.standard_currency is not None
-                     else "",
-                amount,
-            )
-        )
-    print("Debtors")
-    for name, amount in debtors:
-        print(
-            "\t{}: {}{:.2f}".format(
-                name,
-                args.standard_currency if args.standard_currency is not None 
-                    else "",
-                amount,
-            )
-        )
+    print("Spending of each member:")
+    print(format_member_stats_table(
+        loader.get_member_stats(), args.standard_currency))
+    print("  Consumption:     own share of the records the member takes part in")
+    print("  Paid:            amount actually paid out as a creditor")
+    print("  Paid for Others: the part of Paid covering other members' shares")
+    print("  Net:             Paid - Consumption; positive means being owed money")
     print(SPLIT_LN)
 
     equiv = graph.simplest_equiv(g)

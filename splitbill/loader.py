@@ -5,9 +5,37 @@ from . import graph
 from .exr import ExchangeRates
 from .config import *
 
-from typing import List, Optional
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 import pandas as pd
 from pathlib import Path
+
+
+@dataclass
+class MemberStats:
+    """Spending statistics of a single member over all the records.
+
+    A record is fronted in full by its creditor, while its amount is shared
+    evenly among the debtors listed on it (the creditor included, if listed).
+    """
+
+    consumption: float = 0.0
+    """Own share of every record the member takes part in, i.e. the real cost."""
+
+    paid: float = 0.0
+    """Total amount the member actually paid out as a creditor."""
+
+    paid_for_others: float = 0.0
+    """The part of `paid` that covered other members' shares."""
+
+    covered_by_others: float = 0.0
+    """Own share that was fronted by other members."""
+
+    @property
+    def net(self) -> float:
+        """Net outflow. Positive means the member is owed money by the others."""
+        return self.paid - self.consumption
 
 
 def clean_amount_column(df: pd.DataFrame, amount_col: str) -> None:
@@ -236,19 +264,34 @@ class Loader:
                     _split_names(row[self._cfg.col_debtor], self._cfg.separator)
                 )
 
-        # Create lending graph
+        # Create lending graph, accumulating per-member statistics on the way
         self._g = graph.LendingGraph()
+        # Seeded with every member, so that even one who neither paid nor
+        # consumed anything still shows up in the statistics.
+        self._stats: Dict[str, MemberStats] = defaultdict(
+            MemberStats, {name: MemberStats() for name in self._members})
+
         for index, row in self._df.iterrows():
             creditor = row[self._cfg.col_creditor].strip()
             if is_all_selector(row[self._cfg.col_debtor]):
-                debtors = self._members.copy()
+                debtors = list(self._members)
             else:
                 debtors = _split_names(row[self._cfg.col_debtor], self._cfg.separator)
-            
-            pp_amount = row[self._metacoln_std_tot_amount] / len(debtors)
+
+            tot_amount = row[self._metacoln_std_tot_amount]
+            pp_amount = tot_amount / len(debtors)
+
+            # The creditor fronts the whole amount, whoever shares it.
+            self._stats[creditor].paid += tot_amount
+            # Everyone on the debtor list consumes an even share of it.
+            for debtor in debtors:
+                self._stats[debtor].consumption += pp_amount
+
             if creditor in debtors:  # TODO: unnecessary, self-loop and be eliminated in the graph
                 debtors.remove(creditor)
             for debtor in debtors:
+                self._stats[creditor].paid_for_others += pp_amount
+                self._stats[debtor].covered_by_others += pp_amount
                 self._g.add_edge(creditor, debtor, pp_amount)
 
     def _clean_amount_column(self):
@@ -266,6 +309,18 @@ class Loader:
 
     def get_members(self):
         return self._members
-    
+
+    def get_member_stats(self) -> Dict[str, MemberStats]:
+        """Spending statistics of every member, ordered by net outflow descending
+        (creditors first, then debtors), so that it reads the same way as the
+        settlement result.
+        """
+        return {
+            name: stats
+            for name, stats in sorted(
+                self._stats.items(), key=lambda kv: kv[1].net, reverse=True
+            )
+        }
+
     def get_preprocessed_data(self):
         return self._df
