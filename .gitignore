@@ -1,8 +1,8 @@
 data/
 out/
-logs/
-prompts/
 .claude/
+workspace/
+ctx/
 
 *.ipynb
 .DS_Store
