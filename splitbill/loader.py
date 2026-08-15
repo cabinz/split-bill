@@ -243,7 +243,7 @@ class Loader:
             if is_all_selector(row[self._cfg.col_debtor]):
                 debtors = self._members.copy()
             else:
-                debtors = _split_names(row[self._cfg.col_debtor])
+                debtors = _split_names(row[self._cfg.col_debtor], self._cfg.separator)
             
             pp_amount = row[self._metacoln_std_tot_amount] / len(debtors)
             if creditor in debtors:  # TODO: unnecessary, self-loop and be eliminated in the graph
