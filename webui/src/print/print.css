@@ -1,0 +1,451 @@
+/*
+ * The printed report. A document, not a page.
+ *
+ * Everything here is scoped under `.print-root`, which is the print view's own DOM and
+ * shares no element with the screen. That is what the decoupling bought: these rules
+ * cannot be broken by a screen component, and a screen component cannot be broken by
+ * them. There is no `.screen-only`, no `!important`, and no rule that undoes something
+ * the other stylesheet did -- because the other stylesheet never applied here.
+ *
+ * The root exists in two places and is styled almost identically in both:
+ *
+ *   * **In the report window**, mounted permanently but pushed outside the viewport, so
+ *     that the browser's own Ctrl-P prints the report rather than a blank page. Not
+ *     `display: none`: ECharts measures its container, and a chart in a hidden box
+ *     measures zero and renders an empty SVG. Off-screen it is laid out at exactly the
+ *     paper's text width, so a chart measures the same on screen as on paper and needs
+ *     no resizing before printing -- which is why there is no longer any code that
+ *     prepares the DOM for the print dialog.
+ *   * **In the preview window**, where it is the whole document and is shown on a grey
+ *     background as sheets of paper.
+ *
+ * 180mm is A4's 210mm less the 15mm margins each side, and it is stated rather than left
+ * to `auto` for the reason above: the measured width has to be the printed width.
+ */
+
+.print-root {
+  --paper-width: 180mm;
+
+  width: var(--paper-width);
+  font-family: var(--sans);
+  font-size: 10.5pt;
+  line-height: 1.4;
+  color: var(--ink);
+  background: #fff;
+
+  /* Paper is not a screen, and these are the differences that matter for reading a
+   * table of figures rather than scrolling one. */
+  --rule: #999;
+  --rule-soft: #ccc;
+}
+
+/*
+ * In the report window: laid out, measurable, and not visible.
+ *
+ * `position: fixed` keeps it out of the document flow, so it cannot make the page
+ * scrollable sideways; `left: -300vw` is far enough that no transform or overflow on the
+ * screen view can bring an edge of it into view. `aria-hidden` on the element itself
+ * keeps it off the accessibility tree, since a screen reader should not read the whole
+ * report twice.
+ */
+.print-host .print-root {
+  position: fixed;
+  top: 0;
+  left: -300vw;
+  /* Not `visibility: hidden`: that would be inherited by the charts, and ECharts skips
+   * layout work for a subtree it believes nobody can see. */
+  pointer-events: none;
+}
+
+@media print {
+  /* §7.4. 15mm is about the narrowest most consumer printers manage without clipping. */
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+
+  /* The screen view does not go on paper at all -- not hidden control by control, but
+   * the whole tree, because the printed report is a different document rather than a
+   * tidied-up version of this one. */
+  .screen-root { display: none; }
+
+  .print-host .print-root {
+    position: static;
+    left: auto;
+  }
+
+  .print-host { display: block; }
+}
+
+/* ---------- structure ---------- */
+
+.print-root .masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4mm;
+  padding-bottom: 1.5mm;
+  border-bottom: 2px solid var(--ink);
+  margin-bottom: 4mm;
+}
+
+.print-root .masthead h1 { margin: 0; font-size: 16pt; line-height: 1.2; }
+.print-root .masthead .subtitle { color: var(--ink-soft); font-size: 9pt; }
+
+.print-root .section {
+  margin: 0 0 8mm;
+  /* Deliberately *not* `break-inside: avoid`.
+   *
+   * That was the first thing tried and it wasted most of page 1: the member table does
+   * not fit in what is left, so the whole section moved to page 2 and left a two-thirds
+   * empty page behind it. On a multi-page report that trade is backwards -- a section
+   * split across a page boundary with its table header repeated is perfectly readable,
+   * and a mostly blank page is not.
+   *
+   * The rule is applied below to the things that are actually indivisible: a card, a
+   * table row, a chart, a notice. */
+  break-inside: auto;
+}
+
+.print-root .section > header {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 1mm;
+  margin-bottom: 3mm;
+}
+
+/* Nothing but a heading at the bottom of a page. */
+.print-root .section > header,
+.print-root h1,
+.print-root h2,
+.print-root h3,
+.print-root h4 { break-after: avoid; }
+
+.print-root h2 { margin: 0; font-size: 12pt; line-height: 1.25; }
+.print-root h3 { margin: 0 0 1mm; font-size: 10.5pt; line-height: 1.25; }
+.print-root h4 { margin: 0 0 1mm; font-size: 9.5pt; line-height: 1.25; color: var(--ink-soft); }
+.print-root p { margin: 0 0 1.5mm; }
+.print-root .hint { color: var(--ink-soft); font-size: 9pt; max-width: 68ch; }
+.print-root .tiny { font-size: 8pt; }
+.print-root .small { font-size: 8.6pt; }
+.print-root .stack > * + * { margin-top: 4mm; }
+
+/* ---------- tables ---------- */
+
+.print-root table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+}
+
+.print-root th,
+.print-root td {
+  padding: .8mm 1.4mm;
+  text-align: left;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+
+  /*
+   * Cells wrap. This is not the obvious choice for a table of figures and it is load
+   * bearing.
+   *
+   * `nowrap` everywhere reads as the way to stop a date breaking across two lines and
+   * doubling the height of every row it is in. What it actually does is make each column's
+   * minimum width its full text width, so the table's minimum is the sum of them -- and a
+   * table whose minimum exceeds the paper does not shrink, it overflows. On the real bill
+   * the per-member tables came to 909px against a 680px page: a third of every one of them
+   * off the right-hand edge, where paper offers no scrollbar to recover it.
+   *
+   * Wrapping costs 0.3% of the report's height, measured, and the appendix ledger does not
+   * change at all -- a date has no break opportunity inside it, so it was never wrapping and
+   * the rule was never earning anything there.
+   */
+  white-space: normal;
+}
+
+/*
+ * Amounts, which must not break.
+ *
+ * A figure split as "1,108.\n00" is not a layout blemish, it is a number the reader has to
+ * reassemble. Unlike the blanket rule above this cannot hold a table open past the paper:
+ * an amount is a dozen characters and there are at most three such columns.
+ */
+.print-root th.num,
+.print-root td.num { white-space: nowrap; }
+
+.print-root thead th {
+  border-bottom: 1.5px solid var(--rule);
+  font-weight: 600;
+  font-size: 8.6pt;
+  color: var(--ink-soft);
+  background: #fff;
+}
+
+/* A table that breaks across pages must carry its header onto the next one, or the
+ * second page is a grid of unlabelled figures. */
+.print-root thead { display: table-header-group; }
+
+/* The footer, though, must *not* repeat. `display: table-footer-group` puts it at the
+ * foot of every page, and these footers hold grand totals -- so a reader nine pages into
+ * a 20-page appendix sees "668 shares, 37,986.31" and reasonably concludes the table
+ * ended there. Once, at the end, where a total belongs. */
+.print-root tfoot { display: table-row-group; }
+
+.print-root tfoot td {
+  border-top: 1.5px solid var(--rule);
+  font-weight: 600;
+}
+
+.print-root tr,
+.print-root svg { break-inside: avoid; }
+
+.print-root table.compact th,
+.print-root table.compact td { padding: .5mm 1.1mm; font-size: 8.4pt; }
+
+/* ---------- cards ---------- */
+
+.print-root .cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(34mm, 1fr));
+  gap: 2mm;
+}
+
+.print-root .card {
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 1.5mm 2mm;
+  break-inside: avoid;
+}
+
+.print-root .card .label {
+  font-size: 7.6pt;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.print-root .card .value {
+  font-size: 12pt;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.print-root .card .note { font-size: 7.6pt; color: var(--ink-faint); }
+
+/* ---------- notices ---------- */
+
+.print-root .notice {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ink-faint);
+  border-radius: 2px;
+  padding: 1.5mm 2mm;
+  font-size: 8.6pt;
+  break-inside: avoid;
+}
+
+.print-root .notice.warn { border-left-color: var(--warn); }
+.print-root .notice.info { border-left-color: var(--accent); }
+.print-root .notice ul { margin: 1mm 0 0; padding-left: 4mm; }
+
+.print-root .badge {
+  display: inline-block;
+  padding: 0 1mm;
+  border: 1px solid var(--rule-soft);
+  border-radius: 1mm;
+  font-size: 7.6pt;
+  color: var(--ink-soft);
+}
+
+/* ---------- charts ---------- */
+
+/* Millimetres, so a chart occupies a known fraction of a page rather than however many
+ * pixels happened to be its screen height. */
+.print-root .chart { width: 100%; height: 62mm; break-inside: avoid; }
+.print-root .chart.tall { height: 78mm; }
+.print-root .chart.short { height: 46mm; }
+/* The settlement graph, which is a circle rather than a set of bars: its aspect ratio is
+ * preserved, so the diameter is the height and the height is the only thing that gives
+ * the names and amounts room. At 78mm two labels collided on the real bill. */
+.print-root .chart.graph { height: 100mm; }
+
+/* ---------- the pool ---------- */
+
+.print-root .pool {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 4mm;
+  align-items: start;
+  break-inside: avoid;
+}
+
+.print-root .pool .middle {
+  align-self: center;
+  text-align: center;
+  padding: 2mm;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  font-size: 8.4pt;
+  color: var(--ink-soft);
+}
+
+.print-root .pool .middle .value {
+  display: block;
+  font-size: 10.5pt;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.print-root .bar-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5mm;
+  margin: .6mm 0;
+  font-size: 8.6pt;
+}
+
+.print-root .bar-row .name { min-width: 18mm; }
+.print-root .bar-row .track {
+  flex: 1 1 auto;
+  height: 2mm;
+  background: var(--rule-soft);
+  border-radius: .5mm;
+  overflow: hidden;
+}
+/* `display: block` is load-bearing: these are spans, and width does not apply to an
+ * inline box. Without it every bar renders as an empty track -- which looks like the data
+ * is missing rather than like a styling mistake. */
+.print-root .bar-row .fill { display: block; height: 100%; }
+.print-root .bar-row .value {
+  min-width: 22mm;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- the appendices ---------- */
+
+/*
+ * Each appendix starts a new page, and each is the whole bill in one respect and will not fit
+ * on one. Letting it break is the point; forcing it whole would push it onto its own page and
+ * then overflow anyway. The header repeats across the break, which is what keeps a second page
+ * of an appendix from being a grid of unlabelled figures.
+ */
+.print-root .section.appendix { break-inside: auto; break-before: page; }
+
+/* The colophon belongs after the last appendix rather than inside it. */
+.print-root .print-colophon { margin-top: 4mm; }
+
+/* ---------- column groups ---------- */
+
+/* The member table's four groups: who, the two basic figures, the two that decompose them,
+ * what is left to do. From `colgroup`, so a new column cannot silently move the divisions. */
+.print-root table.grouped-columns colgroup.group { border-left: 1.5px solid var(--rule); }
+
+.print-root td.outstanding { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* The bullets under the member table. The formulas are in here, so they have to print. */
+.print-root ul.notes {
+  margin: 2mm 0 0;
+  padding-left: 4.5mm;
+  color: var(--ink-soft);
+  font-size: 8.4pt;
+}
+
+.print-root ul.notes li { margin: .4mm 0; max-width: 78ch; }
+
+/* ---------- per-member detail ---------- */
+
+/* One block per member, each holding that member's records. Kept whole where it fits,
+ * because a member's records split across a page break read as two members. */
+.print-root .member-detail { break-inside: avoid; margin-bottom: 4mm; }
+.print-root .member-detail > h4 { break-after: avoid; }
+
+.print-root a { color: inherit; text-decoration: none; }
+
+/* Colour is a second channel here, not the only one -- the sign is always printed too,
+ * so this survives a monochrome printer. */
+.print-root .owed { color: #14532d; }
+.print-root .owes { color: #7f1d1d; }
+
+/* ---------- the preview window ---------- */
+
+/*
+ * The preview is the print view on a screen, so it needs the one thing paper provides for
+ * free: an edge. Without the page-like framing the report is a single 20-page column with
+ * no indication of where the paper would end, which makes it useless for the thing a
+ * preview is for -- seeing whether anything is clipped or badly broken.
+ *
+ * It cannot show true page breaks; only the print engine knows those. It shows the text
+ * width faithfully, which is what catches a table too wide for the paper.
+ */
+.print-preview {
+  min-height: 100vh;
+  margin: 0;
+  padding: 8mm 0 16mm;
+  background: #e9edf1;
+}
+
+.print-preview .print-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  align-items: center;
+  justify-content: space-between;
+  margin: -8mm auto 8mm;
+  padding: .6rem 1rem;
+  max-width: calc(180mm + 24mm);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--sans);
+}
+
+.print-preview .print-toolbar h1 { margin: 0; font-size: 1rem; }
+.print-preview .print-toolbar p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: .8rem;
+  max-width: 60ch;
+}
+
+.print-preview .print-toolbar button {
+  font: inherit;
+  font-size: .9rem;
+  padding: .4rem .9rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.print-preview .print-root {
+  margin: 0 auto;
+  padding: 12mm;
+  /* The sheet, so the reader can see where the paper stops. */
+  box-shadow: 0 2px 12px rgb(31 35 40 / 18%);
+}
+
+.print-preview .print-status {
+  max-width: calc(180mm + 24mm);
+  margin: 0 auto 4mm;
+  padding: .6rem .8rem;
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-family: var(--sans);
+  font-size: .85rem;
+}
+
+@media print {
+  /* The framing is for the screen. On paper the report is the document. */
+  .print-preview { padding: 0; background: #fff; }
+  .print-preview .print-toolbar,
+  .print-preview .print-status { display: none; }
+  .print-preview .print-root {
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+}

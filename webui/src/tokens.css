@@ -1,0 +1,59 @@
+/*
+ * The values both views share, and nothing that positions anything.
+ *
+ * Split out of `styles.css` when the print view got its own stylesheet, because those two
+ * files must not drift on what "owed" is coloured or which font has CJK coverage, and
+ * must have nothing else in common. A rule in here that laid anything out would be a
+ * rule the print stylesheet inherits and has to undo, which is the coupling the whole
+ * exercise removes.
+ *
+ * Deliberately not a dark theme. A report gets printed, and printing a dark background is
+ * either a waste of toner or -- more often, since browsers drop backgrounds by default --
+ * a page of black on white with every carefully chosen contrast ratio destroyed.
+ */
+
+:root {
+  --ink: #1f2328;
+  --ink-soft: #59636e;
+  --ink-faint: #848d97;
+  --rule: #d8dee4;
+  --rule-soft: #eaeef2;
+  --paper: #ffffff;
+  --paper-soft: #f6f8fa;
+  --accent: #2f6f9f;
+  --accent-soft: #ddeaf4;
+  --owed: #1a6b45;
+  --owed-soft: #e3f2ea;
+  --owes: #a8342f;
+  --owes-soft: #fbe9e7;
+  --warn: #8a6100;
+  --warn-soft: #fdf3d8;
+
+  --gap: 1rem;
+  --radius: 6px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Noto Sans CJK before the generic families: on a Mac the default sans has CJK
+   * coverage, on Linux it frequently does not and the names become boxes. */
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", "Noto Sans", "Noto Sans CJK SC", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+/* The standing colours, which both views use on amounts and in prose. Colour is never
+ * the only channel: every amount is printed with its sign, so a monochrome printer loses
+ * emphasis and no information. */
+.owed { color: var(--owed); }
+.owes { color: var(--owes); }
+.square { color: var(--ink-faint); }
+
+.muted { color: var(--ink-soft); }
+.faint { color: var(--ink-faint); }
+
+/* Figures line up in a column only if their digits are the same width, and a column of
+ * amounts that does not line up is a column nobody will add up. */
+.num { text-align: right; font-variant-numeric: tabular-nums; }

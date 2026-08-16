@@ -84,12 +84,88 @@ else
 	@pytest $(TEST_ARGS)
 endif
 
+# === Web interface ===
+
+WEBUI_SRC := webui
+WEBUI_OUT := $(MODULE_NAME)/render/webui
+HAS_NPM := $(shell command -v npm 2> /dev/null)
+
+## webui: Build the web interface into splitbill/render/webui/
+.PHONY: webui
+webui:
+ifndef HAS_NPM
+	@echo "$(RED)Error: npm is required to build the web interface$(NC)"
+	@echo "$(YELLOW)The built interface is committed, so this is only needed after"
+	@echo "changing anything under webui/src/.$(NC)"
+	@exit 1
+endif
+	@echo "$(BLUE)Building the web interface...$(NC)"
+	@cd $(WEBUI_SRC) && npm install --silent && npm run build
+	@echo "$(GREEN)✓ Built into $(WEBUI_OUT)$(NC)"
+	@echo "$(YELLOW)The output is committed on purpose: it is what makes"
+	@echo "'pip install splitbill && splitbill serve' work without node.$(NC)"
+	@echo "$(YELLOW)Commit it alongside the source change that caused it.$(NC)"
+
+## webui-dev: Start only Vite (needs `make serve` alongside)
+.PHONY: webui-dev
+webui-dev:
+	@echo "$(BLUE)Starting Vite on :5173, proxying /api to :8765$(NC)"
+	@echo "$(YELLOW)Run 'make serve' in another terminal for the API.$(NC)"
+	@cd $(WEBUI_SRC) && npm run dev
+
+## develop: Start frontend HMR and backend auto-reload together
+.PHONY: develop
+develop:
+	@uv run splitbill serve --develop
+
+## webui-test: Unit-test the shared presentation layer (no browser needed)
+.PHONY: webui-test
+webui-test:
+ifndef HAS_NPM
+	@echo "$(RED)Error: npm is required$(NC)"
+	@exit 1
+endif
+	@echo "$(BLUE)Testing the shared presentation layer...$(NC)"
+	@cd $(WEBUI_SRC) && npm install --silent && npm test
+
+## webui-check: Build the interface and drive it in a real browser
+.PHONY: webui-check
+webui-check: webui webui-test
+	@echo "$(BLUE)Starting the service and checking the page...$(NC)"
+	@cd $(WEBUI_SRC) && npx playwright install chromium --with-deps 2>/dev/null \
+		|| npx playwright install chromium
+	@( uv run splitbill serve --port 8765 --no-browser & echo $$! > /tmp/sb.pid ) \
+		&& sleep 3 \
+		&& ( cd $(WEBUI_SRC) && node e2e/smoke.mjs --port 8765 \
+		     && node e2e/print.mjs --port 8765 \
+		     && node e2e/edge.mjs --port 8765 \
+		     && node e2e/i18n.mjs --port 8765 ); \
+		status=$$?; kill `cat /tmp/sb.pid` 2>/dev/null; rm -f /tmp/sb.pid; \
+		exit $$status
+
+## webui-shots: Screenshots and a PDF into /tmp/splitbill-shots, for looking at
+.PHONY: webui-shots
+webui-shots:
+	@( uv run splitbill serve --port 8765 --no-browser & echo $$! > /tmp/sb.pid ) \
+		&& sleep 3 \
+		&& ( cd $(WEBUI_SRC) && node e2e/shots.mjs --port 8765 ); \
+		status=$$?; kill `cat /tmp/sb.pid` 2>/dev/null; rm -f /tmp/sb.pid; \
+		echo "$(YELLOW)pdftoppm -r 80 -png /tmp/splitbill-shots/report.pdf pg$(NC)"; \
+		exit $$status
+
+## serve: Start the local web service
+.PHONY: serve
+serve:
+	@uv run splitbill serve
+
 # === Build Commands ===
 
 ## build: Build distribution packages (wheel and sdist)
 .PHONY: build
 build: clean
 	@echo "$(BLUE)Building distribution packages...$(NC)"
+	@test -f $(WEBUI_OUT)/index.html \
+		|| echo "$(YELLOW)⚠ No web interface in $(WEBUI_OUT) — run 'make webui'$(NC)"
 ifdef HAS_UV
 	@uv build
 else
@@ -137,8 +213,12 @@ help:
 	@echo "$(YELLOW)Examples:$(NC)"
 	@echo "  make install         # Install for users"
 	@echo "  make install-dev     # Setup development environment"
-	@echo "  make test           # Run all tests"
+	@echo "  make serve           # Start the web interface"
+	@echo "  make develop         # Start frontend and backend with hot reload"
+	@echo "  make test            # Run all tests"
 	@echo "  make test TEST_ARGS='-v tests/test_auto_detect.py'  # Run specific test"
+	@echo "  make webui           # Rebuild the web interface after editing webui/src"
+	@echo "  make webui-test      # Unit-test the shared presentation layer"
 	@echo ""
 ifdef HAS_UV
 	@echo "$(GREEN)✓ uv detected$(NC)"
@@ -150,4 +230,5 @@ ifdef VENV_ACTIVE
 endif
 
 # Declare all targets as phony to ensure they always run
-.PHONY: install install-dev uninstall test build clean publish help
+.PHONY: install install-dev uninstall test build clean publish help \
+	webui webui-dev webui-test webui-check webui-shots serve develop

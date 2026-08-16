@@ -1,106 +1,24 @@
-"""Graph data structure for lending flows."""
+"""Reduce a lending graph to the fewest transfers that settle it.
 
-from .utils.logger import get_logger
+`simplest_equiv` is the core of the tool: it discards who lent to whom, keeps
+only each member's net, and re-pairs those nets into as few transfers as
+possible. That re-pairing is why a settlement can name a counterparty a member
+never lent to or borrowed from, and why the report has to show the lending edges
+alongside it.
+
+Split out of graph.py in plan step 0d. The data structure and the algorithm over
+it had no reason to share a module: this half is the only part that needs to stay
+free of pandas, and keeping them apart is what lets the algorithm be tested
+without a loader anywhere in sight.
+"""
+
+from ..utils.logger import get_logger
+from .graph import LendingGraph, is_equal, is_zero
 
 from copy import deepcopy
-import pandas as pd
-from typing import List, Tuple, Dict
 from collections import defaultdict
-import math
 
 logger = get_logger(__name__)
-
-ABS_TOL = 1e-02
-
-
-def is_equal(fp1, fp2):
-    return math.isclose(fp1, fp2, abs_tol=ABS_TOL)
-
-
-def is_zero(flt):
-    return is_equal(flt, 0.0)
-
-
-class LendingGraph:
-    """A direct weighted graph, where weights are the lending flows."""
-
-    def __init__(self, log=logger) -> None:
-        self._adj_lt = defaultdict(lambda: defaultdict(float))
-        self.net_out_flow = defaultdict(float)
-        self.log = logger
-
-    def vis(self) -> str:
-        s = ""
-        for creditor in self._adj_lt.keys():
-            for debtor, amount in self._adj_lt[creditor].items():
-                s += f"{creditor} --{amount:.2f}--> {debtor}\n"
-        return s.strip()
-
-    def get_nodes(self) -> List[str]:
-        lt = set(self._adj_lt.keys())
-        for creditor in self._adj_lt.keys():
-            lt.update(list(self._adj_lt[creditor].keys()))
-        return sorted(lt)
-
-    def add_edge(self, creditor, debtor, amount) -> None:
-        assert (
-            creditor != debtor
-        ), f"creditor and debtor ({creditor}) should not be the same one!"
-        self._adj_lt[creditor][debtor] += amount
-        self.net_out_flow[creditor] += amount
-        self.net_out_flow[debtor] -= amount
-        if is_zero(self._adj_lt[creditor][debtor]):
-            self.remove_edge(creditor, debtor)
-
-    def has_edge(self, creditor, debtor) -> bool:
-        return creditor in self._adj_lt and debtor in self._adj_lt[creditor]
-
-    def get_edge(self, creditor, debtor) -> float:
-        assert self.has_edge(creditor, debtor)
-        return self._adj_lt[creditor][debtor]
-
-    def get_edges(self, creditor) -> List[Tuple]:
-        return self._adj_lt[creditor]
-
-    def num_edges(self) -> int:
-        return sum(len(self._adj_lt[creditor]) for creditor in self._adj_lt)
-
-    def get_flow(self, creditor, debtor) -> float:
-        return self._adj_lt[creditor][debtor] if self.has_edge(creditor, debtor) else 0.0
-
-    def remove_edge(self, creditor, debtor) -> float:
-        amount = self.get_edge(creditor, debtor)
-        self._adj_lt[creditor].pop(debtor, None)
-        self.net_out_flow[creditor] -= amount
-        self.net_out_flow[debtor] += amount
-        return amount
-
-    def get_childs(self, node) -> List[str]:
-        return list(self._adj_lt[node].keys()) if node in self._adj_lt else []
-
-    def dump(
-        self,
-        col_creditor: str = "Creditor",
-        col_debtor: str = "Debtor",
-        col_amount: str = "Amount",
-        precision: int = 2,
-    ) -> pd.DataFrame:
-        # Create an empty DataFrame
-        data_types = {
-            col_creditor: "object",  # 'object' is typically used for strings
-            col_debtor: "object",
-            col_amount: "float64",  # 'float64' for floating point numbers
-        }
-        df = pd.DataFrame(columns=data_types.keys()).astype(data_types)
-
-        for creditor in self._adj_lt:
-            for debtor in self._adj_lt[creditor]:
-                amount = round(self.get_flow(creditor, debtor), precision)
-                new_row = pd.DataFrame(
-                    [[creditor, debtor, amount]], columns=df.columns)
-                df = pd.concat([df, new_row], ignore_index=True)
-
-        return df
 
 
 def check_equiv(g1: LendingGraph, g2: LendingGraph) -> bool:
@@ -213,7 +131,3 @@ def simplest_equiv(g: LendingGraph, log=logger) -> LendingGraph:
     ), f"G.NET_OUT = {g.net_out_flow}; EQ.NET_OUT = {equiv_g.net_out_flow}"
 
     return equiv_g
-
-
-if __name__ == "__main__":
-    pass

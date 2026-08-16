@@ -1,24 +1,35 @@
 """CLI entry of the package."""
 
 from .config import *
-from .loader import Loader, DataFormat, clean_amount_column
-from .exr import ExchangeRates
-from .formatter import format_transaction_table, format_member_stats_table
-from .validator import DataValidator, ValidationResult
-from . import graph
+from .loader.source import SUPPORT_FTYPES
+from .render import sheets
+from .render.text import format_transaction_table, format_member_stats_table
+from . import pipeline
 
 import argparse
-import pandas as pd
 from pathlib import Path
 import sys
 
 SPLIT_LN = "=" * 20
 
 
-def main():
+def main(argv=None):
+    """Run the CLI.
+
+    `splitbill serve` is handled before argparse rather than as a subparser. Adding
+    subcommands properly would make `--file` sit under one, and every invocation
+    anybody has written down -- README, samples/run.sh, the Makefile, whatever is in
+    somebody's shell history -- says `splitbill --file ...` with no subcommand at all.
+    A new verb is not worth breaking those for.
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "serve":
+        return _serve(argv[1:])
+
     parser = argparse.ArgumentParser(
         'SplitBill',
-        description="Process some integers."
+        description="Split a group bill into the fewest transfers that settle it. "
+                    "Run `splitbill serve` for the web interface.",
     )
 
     parser.add_argument(
@@ -80,112 +91,167 @@ def main():
         help='File path to dump the detailed preprocessed record sheet. eg. "path/to/details.csv".',
     )
     parser.add_argument(
+        "--ledger_dump_path",
+        type=str,
+        help='File path to dump the per-share allocation, one row per person per '
+             'record. eg. "path/to/ledger.csv".',
+    )
+    parser.add_argument(
+        "--json_dump_path",
+        type=str,
+        help='File path to dump the whole report as JSON. eg. "path/to/report.json". '
+             'This is the same structure the web view reads.',
+    )
+    parser.add_argument(
         "--validate-only",
         action="store_true",
         help="Only validate the input data without processing.",
     )
 
-    args = parser.parse_args()
-    
+    args = parser.parse_args(argv)
+
     ########################################
-    # Load data file for validation
     file_path = Path(args.file)
     if not file_path.exists():
         print(f"Error: File {file_path} does not exist")
         sys.exit(1)
-    
-    # Determine file type and load
-    SUPPORT_FTYPES = {
-        ".csv": lambda x: pd.read_csv(x),
-        ".tsv": lambda x: pd.read_csv(x, sep="\t"),
-        ".xlsx": lambda x: pd.read_excel(x),
-    }
-    
+
     file_type = file_path.suffix
     if file_type not in SUPPORT_FTYPES:
         print(f"Error: Unsupported file format {file_type}. Supported formats: {', '.join(SUPPORT_FTYPES.keys())}")
         sys.exit(1)
-    
-    df = SUPPORT_FTYPES[file_type](file_path)
-    
+
     # Setup exchange rates
-    exrs = None
-    if args.standard_currency:
+    exrs = pipeline.exchange_rates_from_args(
+        args.standard_currency, args.exchange_rate)
+    if exrs is not None:
         print(f"Standard currency for results: {args.standard_currency}")
-        exrs = ExchangeRates(args.standard_currency)
-        if args.exchange_rate:
-            for s in args.exchange_rate: # s = 'BASE/QUOTE=x'
-                base_quote, rate = s.split("=")
-                base, quote = base_quote.split("/")
-                exrs.add_rate(base, quote, float(rate))
-                print(f"Registered exchange rate {base}/{quote} = {rate}")
-    
-    # Create DataFormat with auto-detection
-    data_format = DataFormat.from_args_with_auto_detect(args, df)
+        # Echoed from the argument as typed, not from the parsed float, so the
+        # number shown back is the number the user entered.
+        for spec in args.exchange_rate or []:  # spec = 'BASE/QUOTE=x'
+            base_quote, rate = spec.split("=")
+            base, quote = base_quote.split("/")
+            print(f"Registered exchange rate {base}/{quote} = {rate}")
 
-    # Clean amount column to handle comma-formatted numbers
-    # This must be done before validation
-    clean_amount_column(df, data_format.col_tot_amount)
+    # Read, detect columns, validate. Nothing is computed yet, which is what lets
+    # --validate-only stop here and what the web layer's /api/parse returns.
+    prepared = pipeline.prepare(args.file, exrs=exrs, args=args)
 
-    # Validate data
-    validator = DataValidator(df, data_format, exrs)
-    validation_result = validator.validate()
-    
-    if validation_result.has_errors() or validation_result.has_warnings():
-        validation_result.print_summary()
-        if validation_result.has_errors():
+    # Reporting detection is the caller's job, not layer 1's. Only the four
+    # settlement-critical roles are announced: the descriptive columns cannot stop
+    # a bill from settling, so naming them would be noise about no decision.
+    for role in ("creditor", "debtor", "amount", "currency"):
+        binding = prepared.cfg.bindings[role]
+        if binding.auto:
+            print(f"✓ Auto-detected {role} column: '{binding.name}'")
+
+    if prepared.validation.has_errors() or prepared.validation.has_warnings():
+        prepared.validation.print_summary()
+        if prepared.validation.has_errors():
             print("\nData validation failed. Please fix the errors above.")
             sys.exit(1)
     else:
         print("✓ Data validation passed.")
-    
+
     # If validate-only flag is set, exit after validation
     if args.validate_only:
         sys.exit(0)
-    
+
     print("")  # Empty line for separation
-    
-    # Continue with normal processing
-    loader = Loader(
-        args.file,
-        data_format,
-        exrs
-    )
 
-    # sorted(): get_members() is a set, whose iteration order varies per run.
-    print(f"Members:", ", ".join(sorted(loader.get_members())))
+    report = pipeline.analyze(prepared)
+
+    for warning in report.meta.warnings:
+        print(warning)
+
+    print(f"Members:", ", ".join(report.members))
     print(SPLIT_LN)
-
-    g = loader.get_graph()
 
     print("Spending of each member:")
     print(format_member_stats_table(
-        loader.get_member_stats(), args.standard_currency))
+        {p.member: p for p in report.positions}, args.standard_currency))
     print("  Consumption:     own share of the records the member takes part in")
     print("  Paid:            amount actually paid out as a creditor")
     print("  Paid for Others: the part of Paid covering other members' shares")
     print("  Net:             Paid - Consumption; positive means being owed money")
     print(SPLIT_LN)
 
-    equiv = graph.simplest_equiv(g)
-    coln_amount = (f"Amount ({args.standard_currency})" if args.standard_currency is not None 
-                    else "Amount")
-    dumped_df = equiv.dump(col_amount=coln_amount)
-
     # Display transaction count in the title
-    transaction_count = len(dumped_df)
+    transaction_count = report.summary.transaction_count
     print(f"Simplest bill splitting scheme: (with {transaction_count} transaction{'s' if transaction_count != 1 else ''})")
-    
-    # Format and display the table
-    if not dumped_df.empty:
-        formatted_table = format_transaction_table(dumped_df, args.standard_currency)
-        print(formatted_table)
-    else:
-        print("No transactions needed - everyone is settled!")
+
+    # Format and display the table (which says so itself when there is nothing to do)
+    print(format_transaction_table(
+        report.settlement, sheets.amount_column_label(report.meta.std_currency)))
 
     if args.result_dump_path is not None:
-        dumped_df.to_csv(args.result_dump_path)
+        sheets.dump_settlement(report, args.result_dump_path)
         print(f"Results are dumped to {args.result_dump_path}")
     if args.details_dump_path is not None:
-        loader.get_preprocessed_data().to_csv(args.details_dump_path)
+        sheets.dump_details(report, args.details_dump_path)
         print(f"Proprocessing details are dumped to {args.details_dump_path}")
+    if args.ledger_dump_path is not None:
+        sheets.dump_ledger(report, args.ledger_dump_path)
+        print(f"Per-share ledger is dumped to {args.ledger_dump_path}")
+    if args.json_dump_path is not None:
+        Path(args.json_dump_path).write_text(report.to_json(), encoding="utf-8")
+        print(f"Report JSON is dumped to {args.json_dump_path}")
+
+
+def _serve(argv):
+    """`splitbill serve [--develop] [--port N] [--no-browser]`."""
+    from . import serve as serve_module
+
+    parser = argparse.ArgumentParser(
+        "splitbill serve",
+        description="Serve the web interface on localhost. Bound to loopback only, "
+                    "with no authentication -- see the README.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=serve_module.DEFAULT_PORT,
+        help=f"Port to listen on. Default {serve_module.DEFAULT_PORT}. "
+             f"0 asks the OS for a free one.",
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not open a browser window.",
+    )
+    parser.add_argument(
+        "--develop", "--dev",
+        action="store_true",
+        help="Run the Vite frontend with hot module replacement and restart the "
+             "Python API when backend source files change.",
+    )
+    parser.add_argument(
+        "--frontend-port",
+        type=int,
+        default=serve_module.DEFAULT_FRONTEND_PORT,
+        help="Vite port used with --develop. "
+             f"Default {serve_module.DEFAULT_FRONTEND_PORT}.",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        if args.develop:
+            return serve_module.serve_development(
+                port=args.port,
+                frontend_port=args.frontend_port,
+                open_browser=not args.no_browser,
+            )
+        serve_module.serve(port=args.port, open_browser=not args.no_browser)
+    except serve_module.DevelopmentError as exc:
+        print(f"Error: {exc}")
+        return 1
+    except OSError as exc:
+        # Almost always the port being taken, which is worth saying plainly
+        # rather than as a traceback.
+        print(f"Error: could not listen on port {args.port}: {exc}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

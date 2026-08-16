@@ -5,9 +5,10 @@ import pandas as pd
 import tempfile
 import os
 from pathlib import Path
-from splitbill.loader import DataFormat
+from splitbill.loader import ColumnBinding, DataFormat
 from splitbill.config import (
     CREDITOR_ALIASES, DEBTOR_ALIASES, AMOUNT_ALIASES, CURRENCY_ALIASES,
+    CATEGORY_ALIASES,
     DataColumn
 )
 
@@ -134,6 +135,49 @@ class TestAutoDetection:
         
         detected = DataFormat.auto_detect_column(df.columns.tolist(), DEBTOR_ALIASES)
         assert detected == "Debtor"  # Should pick Debtor over Payee
+
+    def test_category_aliases_are_auto_detected(self):
+        df = pd.DataFrame({
+            "付款人": ["Alice"],
+            "参与人": ["Bob"],
+            "金额": [100],
+            "分类": ["餐饮"],
+        })
+
+        detected = DataFormat.auto_detect_column(
+            df.columns.tolist(), CATEGORY_ALIASES)
+
+        assert detected == "分类"
+
+    def test_optional_category_can_be_overridden_or_disabled(self):
+        from argparse import Namespace
+
+        args = Namespace(
+            col_creditor=None,
+            col_debtor=None,
+            col_tot_amount=None,
+            col_currency=None,
+            separator=",",
+            all_selector="all",
+        )
+        df = pd.DataFrame({
+            "Creditor": ["Alice"],
+            "Debtor": ["Bob"],
+            "Amount": [100],
+            "Type": ["wrong guess"],
+            "Spending bucket": ["Food"],
+        })
+
+        overridden = DataFormat.from_args_with_auto_detect(
+            args, df, descriptive_overrides={"category": "Spending bucket"})
+        disabled = DataFormat.from_args_with_auto_detect(
+            args, df, descriptive_overrides={"category": None})
+
+        assert overridden.col_category == "Spending bucket"
+        assert overridden.bindings["category"] == ColumnBinding(
+            "Spending bucket", auto=False)
+        assert disabled.col_category is None
+        assert disabled.bindings["category"] == ColumnBinding(None, auto=False)
     
     def test_from_args_with_auto_detect(self):
         """Test the from_args_with_auto_detect method."""

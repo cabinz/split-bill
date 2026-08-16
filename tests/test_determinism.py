@@ -15,11 +15,10 @@ result cannot serve as a baseline.
 import os
 import subprocess
 import sys
-import tempfile
 
 import pytest
 
-from splitbill.loader import Loader, DataFormat
+from tests.conftest import analyse, rows_to_csv
 
 
 # Two net creditors and three net debtors, so the minimal scheme has several
@@ -44,18 +43,9 @@ def bill_path(tmp_path):
     return str(path)
 
 
-def make_loader(rows, header="Creditor,Debtor,Amount,Currency", **kwargs):
-    """Build a Loader over a temporary CSV of the given rows."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False,
-                                     encoding="utf-8") as f:
-        f.write(header + "\n")
-        for row in rows:
-            f.write(row + "\n")
-        temp_path = f.name
-    try:
-        return Loader(temp_path, DataFormat(**kwargs))
-    finally:
-        os.unlink(temp_path)
+def bill(rows, tmp_path, **kwargs):
+    """Load and settle a bill made of the given rows."""
+    return analyse(rows_to_csv(rows), tmp_path, **kwargs)
 
 
 class TestCliDeterminism:
@@ -92,30 +82,31 @@ class TestCliDeterminism:
 class TestOrderingIsExplicit:
     """In-process: the orderings the report depends on are sorted, not incidental."""
 
-    def test_all_selector_expands_in_sorted_order(self):
+    def test_all_selector_expands_in_sorted_order(self, tmp_path):
         """The debtor list an `all` row expands to drives edge insertion order."""
-        loader = make_loader(["Zoe,All,300,USD", "Alice,All,300,USD"])
-        edges = [debtor for debtor in loader.get_graph().get_edges("Zoe")]
-        assert edges == sorted(edges)
+        b = bill(["Zoe,All,300,USD", "Alice,All,300,USD"], tmp_path)
+        debtors = [e.debtor for e in b.settled.lending_edges if e.creditor == "Zoe"]
+        assert debtors == sorted(debtors)
 
-    def test_stats_break_net_ties_by_name(self):
-        """Equal nets must not fall back on `self._stats` insertion order."""
+    def test_stats_break_net_ties_by_name(self, tmp_path):
+        """Equal nets must not fall back on the aggregation's insertion order."""
         # Bob and Carol each consume 50 and pay nothing: identical net of -50.
-        loader = make_loader(["Alice,\"Bob, Carol\",100,USD"])
-        stats = loader.get_member_stats()
-        assert list(stats) == ["Alice", "Bob", "Carol"]
+        b = bill(["Alice,\"Bob, Carol\",100,USD"], tmp_path)
+        assert list(b.positions) == ["Alice", "Bob", "Carol"]
 
-    def test_graph_nodes_are_sorted(self):
-        loader = make_loader(["Zoe,All,300,USD", "Alice,Bob,50,USD"])
-        nodes = loader.get_graph().get_nodes()
-        assert nodes == sorted(nodes)
+    def test_everyone_on_an_edge_is_reported_in_sorted_order(self, tmp_path):
+        b = bill(["Zoe,All,300,USD", "Alice,Bob,50,USD"], tmp_path)
+        assert b.nodes() == sorted(b.nodes())
 
-    def test_repeated_loads_agree(self):
-        """Same input, same process, two Loaders: byte-identical settlement."""
-        from splitbill.graph import simplest_equiv
+    def test_members_are_sorted(self, tmp_path):
+        b = bill(["Zoe,All,300,USD", "Alice,Bob,50,USD"], tmp_path)
+        assert list(b.members) == sorted(b.members)
 
-        def settle():
-            loader = make_loader([r for r in BILL.strip().splitlines()[1:]])
-            return simplest_equiv(loader.get_graph()).dump().to_csv(index=False)
+    def test_repeated_loads_agree(self, tmp_path):
+        """Same input, same process, loaded twice: identical settlement."""
+        rows = BILL.strip().splitlines()[1:]
 
-        assert settle() == settle()
+        def settled():
+            return bill(rows, tmp_path).settled.settlement
+
+        assert settled() == settled()

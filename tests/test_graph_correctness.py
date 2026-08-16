@@ -3,7 +3,8 @@
 import pytest
 import math
 from collections import defaultdict
-from splitbill.graph import LendingGraph, simplest_equiv, check_equiv, is_zero, ABS_TOL
+from splitbill.settle.graph import LendingGraph, is_zero, ABS_TOL
+from splitbill.settle.simplify import simplest_equiv, check_equiv
 
 
 class TestGraphCorrectness:

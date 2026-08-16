@@ -1,0 +1,47 @@
+# Line endings.
+#
+# This repository mixes CRLF and LF -- ten files are CRLF, the other seventy-odd are
+# LF -- and until now nothing recorded which was which. The result was a trap that
+# went off repeatedly: editing a CRLF file with anything that writes text in Python's
+# default mode silently rewrites every line ending, so a two-line change arrives as a
+# whole-file diff. CLAUDE.md once came back 279 lines changed; test_graph_correctness.py
+# 655.
+#
+# `text=auto` puts LF in the index for everything, and the `eol=crlf` lines below check
+# those ten files back out as CRLF. So the working tree keeps the endings it has, while
+# the index is uniform -- and a tool that flattens one of them to LF in the working tree
+# now produces no diff at all, because the index was already LF.
+#
+# This file alone was not enough. The ten files were committed before it existed, so the
+# index still held their CRLF and the spurious diff persisted; `git add --renormalize .`
+# in the same commit is what actually closed it. That is why the commit adding this
+# carries ten whole-file diffs. They are line endings only -- `git diff
+# --ignore-cr-at-eol` on it is empty -- so `git blame -w`, or `--ignore-rev` on that
+# commit, reads through it.
+
+* text=auto
+
+# The ten CRLF files, kept as they are.
+CLAUDE.md                        text eol=crlf
+splitbill/__main__.py            text eol=crlf
+splitbill/loader/exr.py          text eol=crlf
+splitbill/loader/source.py       text eol=crlf
+splitbill/loader/validator.py    text eol=crlf
+splitbill/render/text.py         text eol=crlf
+tests/test_auto_detect.py        text eol=crlf
+tests/test_graph_correctness.py  text eol=crlf
+tests/test_validator.py          text eol=crlf
+
+# A real spreadsheet export, CRLF included. Left exactly as it is: the line endings are
+# part of what this fixture is testing, and `text=auto` guessing at it would be one more
+# thing that can change the end-to-end baseline without anybody asking.
+tests/fixtures/bill_realistic.csv  -text
+
+# Binary, so git should never look inside or try to diff them.
+*.xlsx  binary
+*.png   binary
+*.pdf   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary

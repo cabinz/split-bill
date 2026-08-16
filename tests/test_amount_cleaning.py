@@ -1,191 +1,146 @@
-"""Test amount cleaning functionality for comma-formatted numbers."""
+"""Test amount cleaning functionality for comma-formatted numbers.
 
-import pytest
+Amounts arrive as "2,900.00" from every spreadsheet a human has touched, and every
+one of them has to become a number before anything else reads it. These check the
+frame the loader hands on -- `LoadResult.raw_frame` -- because that is what the
+appendix and the details CSV are written from, so a stray string would surface there
+rather than in the arithmetic.
+"""
+
 import pandas as pd
-import tempfile
-import os
-from pathlib import Path
-from splitbill.loader import Loader, DataFormat
+import pytest
+
+from tests.conftest import load_bill, write_bill
+
+
+def amounts(csv: str, tmp_path, column: str = "Amount", **cfg) -> pd.Series:
+    """The amount column as the loader leaves it."""
+    frame = load_bill(csv, tmp_path, **cfg).raw_frame
+    assert pd.api.types.is_numeric_dtype(frame[column]), (
+        f"{column} is {frame[column].dtype}, so something downstream will do "
+        f"string arithmetic on it"
+    )
+    return frame[column]
 
 
 class TestAmountCleaning:
     """Test cases for cleaning amount values with comma thousand separators."""
 
-    def test_amount_with_commas(self):
-        """Test that amounts with commas are properly cleaned."""
-        # Create test data with comma-formatted amounts
-        # Note: Amounts with commas must be quoted in CSV format
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write("Creditor,Debtor,Amount,Currency\n")
-            f.write('Alice,Bob,"2,900.00",USD\n')
-            f.write('Bob,Charlie,"1,500.50",USD\n')
-            temp_path = f.name
+    def test_amount_with_commas(self, tmp_path):
+        """Amounts with commas are cleaned. They have to be quoted in a CSV."""
+        got = amounts(
+            'Creditor,Debtor,Amount,Currency\n'
+            'Alice,Bob,"2,900.00",USD\n'
+            'Bob,Charlie,"1,500.50",USD\n',
+            tmp_path,
+        )
+        assert list(got) == [2900.00, 1500.50]
 
-        try:
-            loader = Loader(temp_path)
-            df = loader.get_data()
+    def test_mixed_format_amounts(self, tmp_path):
+        """Some with commas, some without, in one column."""
+        got = amounts(
+            'Creditor,Debtor,Amount,Currency\n'
+            'Alice,Bob,"2,900.00",USD\n'
+            'Bob,Charlie,1500.50,USD\n'
+            'Charlie,Alice,"10,000",USD\n'
+            'Alice,Charlie,999.99,USD\n',
+            tmp_path,
+        )
+        assert list(got) == [2900.00, 1500.50, 10000, 999.99]
 
-            # Check that amounts are numeric (not strings)
-            assert pd.api.types.is_numeric_dtype(df['Amount'])
+    def test_large_numbers_with_commas(self, tmp_path):
+        """More than one separator in a single amount."""
+        got = amounts(
+            'Creditor,Debtor,Amount,Currency\n'
+            'Alice,Bob,"1,234,567.89",USD\n'
+            'Bob,Charlie,"999,999.99",USD\n',
+            tmp_path,
+        )
+        assert list(got) == [1234567.89, 999999.99]
 
-            # Check the actual values
-            assert df.loc[0, 'Amount'] == 2900.00
-            assert df.loc[1, 'Amount'] == 1500.50
-        finally:
-            os.unlink(temp_path)
+    def test_backward_compatibility_no_commas(self, tmp_path):
+        """Amounts without commas are untouched."""
+        got = amounts(
+            "Creditor,Debtor,Amount,Currency\n"
+            "Alice,Bob,2900.00,USD\n"
+            "Bob,Charlie,1500.50,USD\n",
+            tmp_path,
+        )
+        assert list(got) == [2900.00, 1500.50]
 
-    def test_mixed_format_amounts(self):
-        """Test handling of mixed formats (some with commas, some without)."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write("Creditor,Debtor,Amount,Currency\n")
-            f.write('Alice,Bob,"2,900.00",USD\n')  # With comma
-            f.write("Bob,Charlie,1500.50,USD\n")  # Without comma
-            f.write('Charlie,Alice,"10,000",USD\n')  # With comma, integer
-            f.write("Alice,Charlie,999.99,USD\n")  # Without comma
-            temp_path = f.name
+    def test_integer_amounts_with_commas(self, tmp_path):
+        got = amounts(
+            'Creditor,Debtor,Amount,Currency\n'
+            'Alice,Bob,"2,900",USD\n'
+            'Bob,Charlie,"10,000",USD\n',
+            tmp_path,
+        )
+        assert list(got) == [2900, 10000]
 
-        try:
-            loader = Loader(temp_path)
-            df = loader.get_data()
+    def test_invalid_amount_raises_error(self, tmp_path):
+        """A cell that is not a number at all stops the load.
 
-            # Check all amounts are numeric
-            assert pd.api.types.is_numeric_dtype(df['Amount'])
-
-            # Check values
-            assert df.loc[0, 'Amount'] == 2900.00
-            assert df.loc[1, 'Amount'] == 1500.50
-            assert df.loc[2, 'Amount'] == 10000
-            assert df.loc[3, 'Amount'] == 999.99
-        finally:
-            os.unlink(temp_path)
-
-    def test_large_numbers_with_commas(self):
-        """Test large numbers with multiple comma separators."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write("Creditor,Debtor,Amount,Currency\n")
-            f.write('Alice,Bob,"1,234,567.89",USD\n')
-            f.write('Bob,Charlie,"999,999.99",USD\n')
-            temp_path = f.name
-
-        try:
-            loader = Loader(temp_path)
-            df = loader.get_data()
-
-            # Check all amounts are numeric
-            assert pd.api.types.is_numeric_dtype(df['Amount'])
-
-            # Check values
-            assert df.loc[0, 'Amount'] == 1234567.89
-            assert df.loc[1, 'Amount'] == 999999.99
-        finally:
-            os.unlink(temp_path)
-
-    def test_backward_compatibility_no_commas(self):
-        """Test that amounts without commas still work (backward compatibility)."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write("Creditor,Debtor,Amount,Currency\n")
-            f.write("Alice,Bob,2900.00,USD\n")
-            f.write("Bob,Charlie,1500.50,USD\n")
-            temp_path = f.name
-
-        try:
-            loader = Loader(temp_path)
-            df = loader.get_data()
-
-            # Check all amounts are numeric
-            assert pd.api.types.is_numeric_dtype(df['Amount'])
-
-            # Check values
-            assert df.loc[0, 'Amount'] == 2900.00
-            assert df.loc[1, 'Amount'] == 1500.50
-        finally:
-            os.unlink(temp_path)
-
-    def test_invalid_amount_raises_error(self):
-        """Test that invalid amount values raise appropriate error."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write("Creditor,Debtor,Amount,Currency\n")
-            f.write("Alice,Bob,2900.00,USD\n")
-            f.write("Bob,Charlie,invalid,USD\n")
-            temp_path = f.name
-
-        try:
-            with pytest.raises(ValueError, match="Invalid amount values found"):
-                loader = Loader(temp_path)
-        finally:
-            os.unlink(temp_path)
-
-    def test_integer_amounts_with_commas(self):
-        """Test integer amounts with comma separators."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write("Creditor,Debtor,Amount,Currency\n")
-            f.write('Alice,Bob,"2,900",USD\n')
-            f.write('Bob,Charlie,"10,000",USD\n')
-            temp_path = f.name
-
-        try:
-            loader = Loader(temp_path)
-            df = loader.get_data()
-
-            # Check all amounts are numeric
-            assert pd.api.types.is_numeric_dtype(df['Amount'])
-
-            # Check values
-            assert df.loc[0, 'Amount'] == 2900
-            assert df.loc[1, 'Amount'] == 10000
-        finally:
-            os.unlink(temp_path)
-
-    def test_amount_cleaning_with_excel(self):
-        """Test amount cleaning works with Excel files."""
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
-            temp_path = f.name
-
-            # Create DataFrame with comma-formatted amounts (as strings)
-            df = pd.DataFrame({
-                'Creditor': ['Alice', 'Bob'],
-                'Debtor': ['Bob', 'Charlie'],
-                'Amount': ['2,900.00', '1,500.50'],
-                'Currency': ['USD', 'USD']
-            })
-            df.to_excel(temp_path, index=False)
-
-        try:
-            loader = Loader(temp_path)
-            loaded_df = loader.get_data()
-
-            # Check all amounts are numeric
-            assert pd.api.types.is_numeric_dtype(loaded_df['Amount'])
-
-            # Check values
-            assert loaded_df.loc[0, 'Amount'] == 2900.00
-            assert loaded_df.loc[1, 'Amount'] == 1500.50
-        finally:
-            os.unlink(temp_path)
-
-    def test_custom_column_name_with_commas(self):
-        """Test amount cleaning works with custom column names."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write("From,To,Value,Curr\n")
-            f.write('Alice,Bob,"2,900.00",USD\n')
-            f.write('Bob,Charlie,"1,500.50",USD\n')
-            temp_path = f.name
-
-        try:
-            cfg = DataFormat(
-                col_creditor='From',
-                col_debtor='To',
-                col_tot_amount='Value',
-                col_currency='Curr'
+        Refused rather than coerced to NaN: an amount nobody can read is a question
+        for whoever wrote the sheet, and silently settling the rest of the bill
+        without it would answer it wrongly.
+        """
+        with pytest.raises(ValueError, match="Invalid amount values found"):
+            load_bill(
+                "Creditor,Debtor,Amount,Currency\n"
+                "Alice,Bob,2900.00,USD\n"
+                "Bob,Charlie,invalid,USD\n",
+                tmp_path,
             )
-            loader = Loader(temp_path, cfg=cfg)
-            df = loader.get_data()
 
-            # Check all amounts are numeric
-            assert pd.api.types.is_numeric_dtype(df['Value'])
+    def test_the_error_names_the_spreadsheet_row(self, tmp_path):
+        """Row 3, counting the header as row 1 -- which is what the editor shows."""
+        with pytest.raises(ValueError, match=r"row\(s\): \[3\]"):
+            load_bill(
+                "Creditor,Debtor,Amount,Currency\n"
+                "Alice,Bob,2900.00,USD\n"
+                "Bob,Charlie,invalid,USD\n",
+                tmp_path,
+            )
 
-            # Check values
-            assert df.loc[0, 'Value'] == 2900.00
-            assert df.loc[1, 'Value'] == 1500.50
-        finally:
-            os.unlink(temp_path)
+    def test_amount_cleaning_with_excel(self, tmp_path):
+        """The same path for .xlsx, where a comma-formatted amount is a string."""
+        bill = tmp_path / "bill.xlsx"
+        pd.DataFrame({
+            "Creditor": ["Alice", "Bob"],
+            "Debtor": ["Bob", "Charlie"],
+            "Amount": ["2,900.00", "1,500.50"],
+            "Currency": ["USD", "USD"],
+        }).to_excel(bill, index=False)
+
+        frame = load_bill(bill).raw_frame
+        assert pd.api.types.is_numeric_dtype(frame["Amount"])
+        assert list(frame["Amount"]) == [2900.00, 1500.50]
+
+    def test_custom_column_name_with_commas(self, tmp_path):
+        """Cleaning follows the configured column, not the default name."""
+        got = amounts(
+            'From,To,Value,Curr\n'
+            'Alice,Bob,"2,900.00",USD\n'
+            'Bob,Charlie,"1,500.50",USD\n',
+            tmp_path,
+            column="Value",
+            col_creditor="From",
+            col_debtor="To",
+            col_tot_amount="Value",
+            col_currency="Curr",
+        )
+        assert list(got) == [2900.00, 1500.50]
+
+    def test_cleaning_reaches_the_shares(self, tmp_path):
+        """The point of all of the above: a cleaned amount gets split as a number.
+
+        Without cleaning, "2,900.00" divided two ways is a TypeError at best and a
+        string concatenation at worst. Checked here so the guarantee is stated in
+        terms of the report and not only of a dtype.
+        """
+        bill = write_bill(
+            'Creditor,Debtor,Amount,Currency\nAlice,"Alice, Bob","2,900.00",USD\n',
+            tmp_path,
+        )
+        ledger = load_bill(bill).ledger
+        assert [e.share for e in ledger] == [1450.00, 1450.00]

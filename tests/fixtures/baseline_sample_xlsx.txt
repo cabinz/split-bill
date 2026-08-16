@@ -1,0 +1,32 @@
+Standard currency for results: HKD
+Registered exchange rate KRW/HKD = 0.0057715
+✓ Auto-detected creditor column: 'Creditor'
+✓ Auto-detected debtor column: 'Debtor'
+✓ Auto-detected amount column: 'Amount'
+✓ Auto-detected currency column: 'Currency'
+✓ Data validation passed.
+
+Members: Alan, Cabin, Cathy, Vivian
+====================
+Spending of each member:
+╔════════╦═══════════════════╦════════════╦═══════════════════════╦═══════════╗
+║ Member ║ Consumption (HKD) ║ Paid (HKD) ║ Paid for Others (HKD) ║ Net (HKD) ║
+╠════════╬═══════════════════╬════════════╬═══════════════════════╬═══════════╣
+║ Alan   ║          1,551.87 ║   2,619.69 ║              2,137.82 ║ +1,067.82 ║
+║ Cabin  ║          1,704.29 ║   1,700.10 ║              1,326.95 ║     -4.19 ║
+║ Vivian ║          1,441.48 ║   1,030.22 ║                854.92 ║   -411.26 ║
+║ Cathy  ║          1,545.22 ║     892.85 ║                674.56 ║   -652.37 ║
+╚════════╩═══════════════════╩════════════╩═══════════════════════╩═══════════╝
+  Consumption:     own share of the records the member takes part in
+  Paid:            amount actually paid out as a creditor
+  Paid for Others: the part of Paid covering other members' shares
+  Net:             Paid - Consumption; positive means being owed money
+====================
+Simplest bill splitting scheme: (with 3 transactions)
+╔════╦══════════╦═════╦════════╦══════════════╗
+║ #  ║ Creditor ║     ║ Debtor ║ Amount (HKD) ║
+╠════╬══════════╬═════╬════════╬══════════════╣
+║ 1  ║   Alan   ║ <-- ║ Cabin  ║         4.19 ║
+║ 2  ║   Alan   ║ <-- ║ Cathy  ║       652.37 ║
+║ 3  ║   Alan   ║ <-- ║ Vivian ║       411.26 ║
+╚════╩══════════╩═════╩════════╩══════════════╝

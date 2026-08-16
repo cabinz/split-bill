@@ -1,29 +1,54 @@
 # Split Bill
 
-SplitBill is a Python-based bill splitting tool designed for group trips and shared expenses. It processes payment records from spreadsheets and generates an optimized repayment scheme with the minimum number of transactions.
+SplitBill turns a spreadsheet of who-paid-for-what into the fewest transfers that
+settle it, and into a report each member can check for themselves.
+
+It runs two ways: a command line that prints the settlement, and a local web page
+that shows the whole derivation and prints to PDF.
 
 ## Key Features
 
-- **Smart Column Detection**: Automatically detects column names (Payer/Payee or Creditor/Debtor)
-- **Multi-Currency Support**: Handles multiple currencies with exchange rate conversion
-- **Transaction Optimization**: Generates the simplest repayment scheme with minimal transactions
-- **Flexible Input**: Supports Excel (.xlsx), CSV, and TSV files
-- **Data Validation**: Built-in validation with helpful error messages
-- **Beautiful Output**: Formatted tables for easy reading
-- **Export Results**: Option to export results and detailed records to CSV
+- **A report, not just an answer**: every figure traces back to the records it came
+  from, and the shares add up exactly
+- **Smart Column Detection**: finds Payer/Payee or Creditor/Debtor columns itself,
+  and lets you correct it in the page if it guesses wrong
+- **Multi-Currency Support**: converts through the rates you supply
+- **Transaction Optimization**: the minimum number of transfers
+- **Flexible Input**: Excel (.xlsx), CSV, TSV
+- **Data Validation**: with messages that name the row
+- **Print-first web view**: charts as SVG, A4 layout, repeated table headers
+- **Export**: CSV, the whole report as JSON, and the per-share ledger
 
 ## Why SplitBill?
 
-During group trips or shared activities, bills are often paid by different members and split later. Manual tracking becomes complex when:
-- Different people pay at different times
-- Multiple currencies are involved
-- Bills need to be split among specific subsets of the group
+During group trips, bills get paid by whoever is nearest the till and sorted out
+later. That is easy to record and hard to settle: different people pay at different
+times, in different currencies, for different subsets of the group.
 
-SplitBill solves this by:
-1. Recording all transactions in a simple spreadsheet
-2. Automatically calculating net balances
-3. Finding the optimal settlement with minimum transactions
-4. Converting all amounts to your preferred currency
+Finding the minimal set of transfers is the easy half. The hard half is that the
+answer is not obviously right to the people being asked to pay.
+
+The minimum-transfer scheme works by collapsing every loan into one net figure per
+person and re-pairing those, so the person you are told to pay is usually somebody
+you never borrowed from. "I never borrowed from Alan, why am I paying Alan?" cannot
+be answered by a tidier table; it is answered by showing the chain behind it:
+
+```
+each record (who fronted it, what my share was)
+  -> what I consumed, what I paid out
+  -> my net
+  -> everybody's nets sum to zero
+  -> any set of transfers that clears them
+```
+
+Each member only has to satisfy themselves about two numbers -- what they consumed
+and what they paid. Once those are accepted, the net follows, and the transfers are
+a delivery problem.
+
+That is what the web view is for, and why the arithmetic is checkable to the cent:
+every share is a whole number of cents, so a column of them adds up to the total
+above it exactly. A report that fails its own arithmetic does not deserve to be
+believed, and somebody always checks.
 
 ## Installation
 
@@ -69,7 +94,37 @@ Required columns (auto-detected):
 - **Amount/Total**: Total amount paid
 - **Currency**: Transaction currency (optional if single currency)
 
-### 2. Run the Command
+Optional columns, used if present: **Date**, **Category**, **Item**. They do not
+affect who owes what; they make the report worth reading. Anything else in the sheet
+is carried through to the appendix untouched.
+
+### 2a. The web view
+
+```bash
+splitbill serve
+```
+
+Opens a browser at `http://127.0.0.1:8765`. The web view has two explicit steps.
+First, import the spreadsheet, configure its columns, separators and exchange rates,
+and inspect every source row (including its base-currency amount when conversion is
+enabled). Validation runs as the settings change and lists every participant produced
+by the current separator, making a composite phantom name visible before analysis.
+Confirming freezes that exact input snapshot and opens the second step: totals, where
+each member stands, charts, the pool of over- and underpayments, transfers to make,
+and the detailed appendix. Returning to the import step invalidates the visible report
+until the input is confirmed again.
+
+"Print / save as PDF" produces a multi-page A4 document -- the same report, laid out
+for paper and for passing round.
+
+**The service is bound to `127.0.0.1` and has no authentication.** That binding is
+the whole security boundary: it cannot be reached from another machine, but anything
+running as you on this one can reach it. It is a local tool, so that is the right
+trade, but it is worth knowing rather than assuming. Uploads go to a temporary
+directory that is deleted when the server stops; nothing is written into the project
+and nothing is written to your spreadsheet.
+
+### 2b. The command line
 
 Basic usage with auto-detection:
 ```bash
@@ -98,21 +153,21 @@ splitbill \
     --validate-only
 ```
 
-### 3. View Results
+### 3. Reading the output
 
 The output shows what each member spent, followed by the optimized repayment
 scheme:
 ```
-Members: Vivian, Alan, Cathy, Cabin
+Members: Alan, Cabin, Cathy, Vivian
 ====================
 Spending of each member:
 ╔════════╦═══════════════════╦════════════╦═══════════════════════╦═══════════╗
 ║ Member ║ Consumption (HKD) ║ Paid (HKD) ║ Paid for Others (HKD) ║ Net (HKD) ║
 ╠════════╬═══════════════════╬════════════╬═══════════════════════╬═══════════╣
-║ Alan   ║          1,551.79 ║   2,619.68 ║              2,137.84 ║ +1,067.90 ║
-║ Cabin  ║          1,704.25 ║   1,700.09 ║              1,326.96 ║     -4.16 ║
-║ Vivian ║          1,441.55 ║   1,030.21 ║                854.90 ║   -411.34 ║
-║ Cathy  ║          1,545.25 ║     892.85 ║                674.54 ║   -652.40 ║
+║ Alan   ║          1,551.87 ║   2,619.69 ║              2,137.82 ║ +1,067.82 ║
+║ Cabin  ║          1,704.29 ║   1,700.10 ║              1,326.95 ║     -4.19 ║
+║ Vivian ║          1,441.48 ║   1,030.22 ║                854.92 ║   -411.26 ║
+║ Cathy  ║          1,545.22 ║     892.85 ║                674.56 ║   -652.37 ║
 ╚════════╩═══════════════════╩════════════╩═══════════════════════╩═══════════╝
   Consumption:     own share of the records the member takes part in
   Paid:            amount actually paid out as a creditor
@@ -123,11 +178,15 @@ Simplest bill splitting scheme: (with 3 transactions)
 ╔════╦══════════╦═════╦════════╦══════════════╗
 ║ #  ║ Creditor ║     ║ Debtor ║ Amount (HKD) ║
 ╠════╬══════════╬═════╬════════╬══════════════╣
-║ 1  ║   Alan   ║ <-- ║ Vivian ║       411.34 ║
-║ 2  ║   Alan   ║ <-- ║ Cathy  ║       652.40 ║
-║ 3  ║   Alan   ║ <-- ║ Cabin  ║         4.16 ║
+║ 1  ║   Alan   ║ <-- ║ Cabin  ║         4.19 ║
+║ 2  ║   Alan   ║ <-- ║ Cathy  ║       652.37 ║
+║ 3  ║   Alan   ║ <-- ║ Vivian ║       411.26 ║
 ╚════╩══════════╩═════╩════════╩══════════════╝
 ```
+
+Every share here is a whole number of cents, so the columns add up exactly: the
+three transfers sum to 1,067.82, which is Alan's net to the cent. Add up either
+column and you have checked the report.
 
 A member's `Consumption` is their real cost: the share they take on every
 record they appear on, whoever fronted the money. `Paid for Others` is how much
@@ -161,9 +220,36 @@ Data Processing:
   --validate-only              Only validate data without processing
   
 Output:
-  --result_dump_path PATH       Export results to CSV file
-  --details_dump_path PATH      Export detailed records to CSV file
+  --result_dump_path PATH       Settlement as CSV
+  --details_dump_path PATH      The sheet as read, plus converted totals, as CSV
+  --ledger_dump_path PATH       One row per person per record, for a spreadsheet
+                                to pivot -- the detail behind every figure
+  --json_dump_path PATH         The whole report as JSON (the same structure the
+                                web view reads; see ctx/v2_plan.md §5)
 ```
+
+### The web service
+
+```bash
+splitbill serve [OPTIONS]
+
+  --port PORT           API port (default 8765; 0 asks the OS for a free one)
+  --no-browser          Do not open a browser window
+  --develop, --dev      Run frontend HMR and backend auto-reload from a checkout
+  --frontend-port PORT  Vite port used with --develop (default 5173)
+```
+
+Bound to `127.0.0.1` only, with no authentication -- see the note under Quick Start.
+Endpoints, if you want to script it:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/parse` | a bill (raw body, name in `X-Filename`) -> detected columns, a preview, findings, and a token |
+| `POST /api/report` | `{token, columns?, separator?, std_currency?, exchange_rates?}` -> the full report |
+| `GET /api/health` | liveness |
+
+The two are separate so a wrong column guess can be corrected in the page and
+recalculated without re-uploading the file.
 
 ### Examples
 
@@ -194,6 +280,18 @@ splitbill \
     --separator ";" \
     --all_selector "everyone"
 ```
+
+**The report as JSON, and the per-share ledger:**
+```bash
+splitbill \
+    --file "expenses.csv" \
+    --json_dump_path "report.json" \
+    --ledger_dump_path "ledger.csv"
+```
+
+`ledger.csv` has one row per person per record -- the working behind every figure in
+the report, in a form a spreadsheet can pivot. `report.json` is the whole thing,
+versioned, and is what the web view consumes.
 
 ## Data Format
 
@@ -237,20 +335,105 @@ uv run pytest --cov=splitbill
 ```
 
 ### Project Structure
+
+Three layers, data flowing one way, with a `Report` as the only thing the output
+side ever sees. The boundaries are asserted by `tests/test_layering.py` rather than
+left to good intentions.
+
 ```
 split-bill/
-├── src/splitbill/
-│   ├── __main__.py       # CLI entry point
-│   ├── loader.py         # Data loading and preprocessing
-│   ├── graph.py          # Graph algorithms for optimization
-│   ├── exr.py            # Exchange rate handling
-│   ├── validator.py      # Data validation
-│   ├── formatter.py      # Output formatting
-│   └── config.py         # Configuration and defaults
-├── tests/                # Unit and integration tests
-├── samples/              # Sample data files
-└── Makefile             # Build automation
+├── splitbill/
+│   ├── __main__.py        # CLI: parse argv, call pipeline, render
+│   ├── serve.py           # the local HTTP service
+│   ├── pipeline.py        # prepare() / analyze(): wiring the layers
+│   ├── report.py          # the Report model and its JSON contract
+│   ├── config.py          # column aliases, separators, tolerances
+│   ├── utils/
+│   │   ├── money.py       # whole-cent splitting
+│   │   └── logger.py
+│   ├── loader/            # (1) read -> validate -> normalise -> convert -> allocate
+│   │   ├── source.py      #     reading files, detecting columns
+│   │   ├── validator.py   #     structure and value checks
+│   │   ├── exr.py         #     exchange rates
+│   │   ├── names.py       #     splitting name cells, expanding "all"
+│   │   ├── ledger.py      #     one row per person per record
+│   │   └── positions.py   #     per-member consumption / paid / net
+│   ├── settle/            # (2) build the graph, find the minimal equivalent
+│   │   ├── graph.py       #     LendingGraph
+│   │   └── simplify.py    #     simplest_equiv
+│   └── render/            # (3) one Report, several outputs
+│       ├── text.py        #     CLI tables, CJK width alignment
+│       ├── sheets.py      #     CSV
+│       ├── web.py         #     JSON payloads for the browser
+│       └── webui/         #     the built frontend (committed; see below)
+├── webui/                 # frontend source (Vue 3 + Vite + TypeScript + ECharts)
+│   └── src/
+│       ├── presentation/  #     shared by both views; no UI state
+│       ├── screen/        #     the interactive page
+│       └── print/         #     the printed report (see below)
+├── tests/
+├── samples/
+├── ctx/                   # design notes; v2_plan.md is the architecture
+└── Makefile
 ```
+
+`settle` imports neither pandas nor `loader`: it takes
+`(creditor, debtor, amount)` triples and returns transfers, which is why layer 1
+could be rewritten without touching the solver or its tests. `render` sees only a
+`Report`, which is why the terminal and the browser cannot disagree about what
+somebody owes.
+
+### The web interface
+
+Source in `webui/`, built output committed to `splitbill/render/webui/`.
+
+Two views over one report, and the split between them is the main thing to know about
+this directory:
+
+```text
+webui/src/
+  presentation/     shared: formatting, i18n, chart options, read-only selectors
+  screen/           the page you scroll: upload, configure, filter, drill down
+  print/            the printed report: A4, complete tables, SVG charts
+```
+
+`presentation/` holds everything that decides *what* a figure says. Neither view
+computes anything — every amount comes from Python — and neither derives display data
+of its own, so the page and the paper cannot come to disagree.
+
+`screen/` and `print/` are separate DOMs with separate stylesheets and no imports
+between them. The screen view can adopt a virtualised table, a sticky header or a
+component library without any of it reaching the printed report; the printed report
+renders every row of a 668-row allocation without the screen having to keep its markup
+printable. Printing does not touch the page: the print view is mounted off-screen from
+the moment a report exists, so the browser's own Ctrl-P works, and clicking **Print**
+freezes a deep copy of the report and the export options and prints that.
+
+The printed report is checked, not assumed. `webui/e2e/print.mjs` reads both DOMs with
+one function and asserts every total, every settlement row and a digest of all 668
+ledger rows are identical, then checks the printed report for completeness — sections,
+row counts, repeated table headers, SVG charts, nothing wider than the paper — and
+that filtering or collapsing anything on screen changes none of it.
+
+After changing anything under `webui/src/`:
+
+```bash
+make webui          # build into splitbill/render/webui/
+make webui-test     # unit-test the shared presentation layer (no browser)
+make webui-check    # build, unit-test, then drive the page in a real browser
+make webui-shots    # screenshots and a PDF into /tmp, for looking at
+make develop        # Vite HMR + Python API auto-reload in one terminal
+make webui-dev      # Vite only, if you want to manage the API separately
+```
+
+`make develop` is a convenience alias for `splitbill serve --develop`. Frontend
+changes are applied by Vite without a full reload. Changes under `splitbill/`
+restart the API; because uploads are intentionally temporary and live in the API
+process, import the current bill again after a backend restart.
+
+Commit the rebuilt output with the source change that caused it.
+`tests/test_webui_build.py` fails if the source is newer than the build, which is
+the mistake this arrangement makes easy.
 
 ## Contributing
 

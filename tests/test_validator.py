@@ -4,10 +4,10 @@ import pytest
 import pandas as pd
 from io import StringIO
 
-from splitbill.validator import DataValidator, ValidationResult, ValidationError, Severity
-from splitbill.loader import DataFormat
+from splitbill.loader.validator import (DataValidator, ValidationResult,
+                                        ValidationError, Severity)
+from splitbill.loader import DataFormat, ExchangeRates
 from splitbill.config import DataColumn
-from splitbill.exr import ExchangeRates
 
 
 class TestValidationError:
@@ -265,6 +265,37 @@ Alice,"Bob,,Charlie",100,USD"""
         
         assert result.has_errors()
         assert any("Empty member name after splitting" in str(e) for e in result.errors)
+
+    def test_validate_mismatched_name_separator(self, data_format):
+        """A suspected delimiter mistake is visible without blocking analysis."""
+        data = '''Creditor,Debtor,Amount,Currency
+Alice,"Alice, Bob",100,USD'''
+        df = pd.read_csv(StringIO(data))
+        data_format.separator = ";"
+
+        result = DataValidator(df, data_format).validate()
+
+        assert not result.has_errors()
+        assert result.has_warnings()
+        finding = next(
+            warning for warning in result.warnings
+            if "may use ',' as the name separator" in warning.message
+        )
+        assert finding.row == 2
+        assert finding.column == data_format.col_debtor
+
+    def test_validate_empty_name_separator_as_a_finding(self, data_format):
+        """An empty separator is a correctable option error, not an exception."""
+        df = pd.read_csv(StringIO(
+            "Creditor,Debtor,Amount,Currency\nAlice,Bob,100,USD\n"
+        ))
+        data_format.separator = ""
+
+        result = DataValidator(df, data_format).validate()
+
+        assert result.has_errors()
+        assert any("Name separator cannot be empty" in e.message
+                   for e in result.errors)
     
     def test_validate_complex_scenario(self, data_format):
         """Test validation with multiple types of errors."""

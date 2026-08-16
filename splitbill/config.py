@@ -46,6 +46,28 @@ COLUMN_ALIASES = {
     DataColumn.CURRENCY: CURRENCY_ALIASES,
 }
 
+# Optional descriptive columns. A bill settles fine without them, so they are
+# detected silently and left as None when absent -- but they are what the report's
+# per-member drill-down, category breakdown and appendix are made of, so a sheet
+# that has them should not have them ignored.
+DATE_ALIASES = [
+    "Date", "Day",
+    "日期",
+]
+
+CATEGORY_ALIASES = [
+    "Category", "Type", "Kind",
+    "类型", "分类", "类别",
+]
+
+# Note: deliberately not aliased to "Note"/"备注". A note is a free-text remark
+# about a record; an item is what was bought. Conflating them would put arbitrary
+# commentary into the report as if it were a line item.
+ITEM_ALIASES = [
+    "Item", "Description", "Detail",
+    "项目", "名目", "事项",
+]
+
 # All selector aliases (for indicating all members)
 ALL_SELECTOR_ALIASES = [
     "all", "*", "ALL", "All",

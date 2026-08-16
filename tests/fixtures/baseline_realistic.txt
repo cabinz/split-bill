@@ -1,0 +1,35 @@
+✓ Auto-detected creditor column: '付款人'
+✓ Auto-detected debtor column: '参与人'
+✓ Auto-detected amount column: '金额'
+✓ Data validation passed.
+
+Members: 丁, 丙, 乙, 己, 庚, 戊, 甲
+====================
+Spending of each member:
+╔════════╦═════════════╦═══════════╦═════════════════╦════════════╗
+║ Member ║ Consumption ║   Paid    ║ Paid for Others ║    Net     ║
+╠════════╬═════════════╬═══════════╬═════════════════╬════════════╣
+║ 甲     ║    7,131.22 ║ 22,454.74 ║       17,974.46 ║ +15,323.52 ║
+║ 戊     ║    5,525.51 ║  6,139.57 ║        4,927.45 ║    +614.06 ║
+║ 庚     ║      797.40 ║      0.00 ║            0.00 ║    -797.40 ║
+║ 乙     ║    6,855.92 ║  5,884.50 ║        4,677.00 ║    -971.42 ║
+║ 己     ║    3,079.42 ║    874.00 ║          766.66 ║  -2,205.42 ║
+║ 丙     ║    7,156.48 ║  2,633.50 ║        2,182.34 ║  -4,522.98 ║
+║ 丁     ║    7,440.36 ║      0.00 ║            0.00 ║  -7,440.36 ║
+╚════════╩═════════════╩═══════════╩═════════════════╩════════════╝
+  Consumption:     own share of the records the member takes part in
+  Paid:            amount actually paid out as a creditor
+  Paid for Others: the part of Paid covering other members' shares
+  Net:             Paid - Consumption; positive means being owed money
+====================
+Simplest bill splitting scheme: (with 6 transactions)
+╔════╦══════════╦═════╦════════╦══════════╗
+║ #  ║ Creditor ║     ║ Debtor ║  Amount  ║
+╠════╬══════════╬═════╬════════╬══════════╣
+║ 1  ║    甲    ║ <-- ║   乙   ║   971.42 ║
+║ 2  ║    甲    ║ <-- ║   丙   ║ 4,522.98 ║
+║ 3  ║    甲    ║ <-- ║   丁   ║ 7,440.36 ║
+║ 4  ║    甲    ║ <-- ║   己   ║ 2,205.42 ║
+║ 5  ║    甲    ║ <-- ║   庚   ║   183.34 ║
+║ 6  ║    戊    ║ <-- ║   庚   ║   614.06 ║
+╚════╩══════════╩═════╩════════╩══════════╝
