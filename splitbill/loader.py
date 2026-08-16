@@ -267,14 +267,20 @@ class Loader:
         # Create lending graph, accumulating per-member statistics on the way
         self._g = graph.LendingGraph()
         # Seeded with every member, so that even one who neither paid nor
-        # consumed anything still shows up in the statistics.
+        # consumed anything still shows up in the statistics. Sorted, so that
+        # this dict's key order -- which the statistics table falls back on for
+        # members of equal net -- is the same on every run.
         self._stats: Dict[str, MemberStats] = defaultdict(
-            MemberStats, {name: MemberStats() for name in self._members})
+            MemberStats, {name: MemberStats() for name in sorted(self._members)})
 
         for index, row in self._df.iterrows():
             creditor = row[self._cfg.col_creditor].strip()
             if is_all_selector(row[self._cfg.col_debtor]):
-                debtors = list(self._members)
+                # sorted(), not list(): iterating a set follows PYTHONHASHSEED,
+                # which would make the edge insertion order — and therefore the
+                # settlement scheme picked among equally-minimal ones — vary
+                # between runs.
+                debtors = sorted(self._members)
             else:
                 debtors = _split_names(row[self._cfg.col_debtor], self._cfg.separator)
 
@@ -314,11 +320,14 @@ class Loader:
         """Spending statistics of every member, ordered by net outflow descending
         (creditors first, then debtors), so that it reads the same way as the
         settlement result.
+
+        Members with the same net are ordered by name, so that the table does
+        not depend on the insertion order of ``self._stats``.
         """
         return {
             name: stats
             for name, stats in sorted(
-                self._stats.items(), key=lambda kv: kv[1].net, reverse=True
+                self._stats.items(), key=lambda kv: (-kv[1].net, kv[0])
             )
         }
 

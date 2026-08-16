@@ -152,7 +152,8 @@ def main():
         exrs
     )
 
-    print(f"Members:", ", ".join(loader.get_members()))
+    # sorted(): get_members() is a set, whose iteration order varies per run.
+    print(f"Members:", ", ".join(sorted(loader.get_members())))
     print(SPLIT_LN)
 
     g = loader.get_graph()

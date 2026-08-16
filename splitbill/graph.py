@@ -40,7 +40,7 @@ class LendingGraph:
         lt = set(self._adj_lt.keys())
         for creditor in self._adj_lt.keys():
             lt.update(list(self._adj_lt[creditor].keys()))
-        return list(set(lt))
+        return sorted(lt)
 
     def add_edge(self, creditor, debtor, amount) -> None:
         assert (
